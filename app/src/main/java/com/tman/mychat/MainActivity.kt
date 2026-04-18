@@ -1,4 +1,4 @@
-package com.example.mychat
+package com.tman.mychat
 
 import android.os.Bundle
 import android.widget.Button
@@ -6,8 +6,7 @@ import android.widget.EditText
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.example.mychat.R.id
-import com.example.mychat.R.layout
+import com.tman.mychat.R.id
 
 class MainActivity : AppCompatActivity() {
 
@@ -15,9 +14,17 @@ class MainActivity : AppCompatActivity() {
     private lateinit var chatAdapter: ChatAdapter
     private val messageList = mutableListOf<Message>()
 
+    private fun sendMessage(text: String, isMe: Boolean) {
+        messageList.add(Message(text, isMe))
+        chatAdapter.notifyItemInserted(messageList.size - 1)
+
+        val recycleview = findViewById<RecyclerView>(R.id.chatRecyclerView)
+        recycleview.scrollToPosition(messageList.size - 1)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {//Bundleは入力途中の一時データ ?はNullの場合があるかもしれない
         super.onCreate(savedInstanceState)
-        setContentView(layout.activity_main) //Layoutディレクトリのactivity_mainを呼び出す
+        setContentView(R.layout.activity_main) //Layoutディレクトリのactivity_mainを呼び出す
 
         // 1. Adapterの準備
         chatAdapter = ChatAdapter(messageList)
@@ -40,8 +47,11 @@ class MainActivity : AppCompatActivity() {
                 // 入力欄を空にする
                 messageInput.text.clear()
                 // 最新のメッセージまでスクロール
+                val replyText = "[${text}って言った？]"
+                sendMessage(replyText, false)
                 recyclerView.scrollToPosition(messageList.size - 1)
             }
         }
     }
 }
+

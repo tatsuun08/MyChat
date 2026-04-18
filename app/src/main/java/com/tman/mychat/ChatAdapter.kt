@@ -1,6 +1,7 @@
-package com.example.mychat
+package com.tman.mychat
 
-import android.R
+import com.tman.mychat.R
+import com.tman.mychat.R.id
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -13,13 +14,14 @@ class ChatAdapter(private val messages: List<Message>) :
 
     // 1. 1行分のレイアウト（ViewHolder）の定義
     class MessageViewHolder(view: View) : RecyclerView.ViewHolder(view) {
-        val messageText: TextView = view.findViewById(R.id.text1) // 簡易的に標準のIDを使用
+        val textPartner: TextView = view.findViewById(id.textPartner)
+        val textMe: TextView = view.findViewById(id.textMe)
     }
 
     // 2. 1行分の見た目（XML）を生成する
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): MessageViewHolder {
         val view = LayoutInflater.from(parent.context)
-            .inflate(R.layout.simple_list_item_1, parent, false)
+            .inflate(R.layout.item_message, parent, false)
         return MessageViewHolder(view)
     }
 
@@ -29,6 +31,18 @@ class ChatAdapter(private val messages: List<Message>) :
     // 4. 指定された位置（position）のデータを、見た目（ViewHolder）にセットする
     override fun onBindViewHolder(holder: MessageViewHolder, position: Int) {
         val message = messages[position]
-        holder.messageText.text = message.text
+
+        if (message.isMe) {
+            // 自分の場合：右を表示、左を隠す
+            holder.textMe.text = message.text
+            holder.textMe.visibility = View.VISIBLE
+            holder.textPartner.visibility = View.GONE
+        } else {
+            // 相手の場合：左を表示、右を隠す
+            holder.textPartner.text = message.text
+            holder.textPartner.visibility = View.VISIBLE
+            holder.textMe.visibility = View.GONE
+        }
     }
 }
+

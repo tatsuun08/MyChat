@@ -1,4 +1,4 @@
-package com.example.mychat
+package com.tman.mychat
 
 import org.junit.Test
 

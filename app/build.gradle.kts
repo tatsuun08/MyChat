@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.mychat"
+    namespace = "com.tman.mychat"
     compileSdk {
         version = release(36) {
             minorApiLevel = 1
