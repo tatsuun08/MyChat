@@ -47,7 +47,21 @@ class MainActivity : AppCompatActivity() {
                 // 入力欄を空にする
                 messageInput.text.clear()
                 // 最新のメッセージまでスクロール
-                val replyText = "[${text}って言った？]"
+                val split_text = text.split(" ")
+                var replyText : String = ""
+                if (split_text[0] == "/help"){
+                    replyText = "/help コマンド詳細"
+                }
+                else if (split_text[0] == "/hello"){
+                    replyText = "こんにちは"
+                    if (split_text.size > 1){
+                        replyText += split_text[1]
+                    }
+                }
+                else {
+                    replyText = "[${text}って言った？]"
+                }
+
                 sendMessage(replyText, false)
                 recyclerView.scrollToPosition(messageList.size - 1)
             }
