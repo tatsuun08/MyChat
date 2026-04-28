@@ -1,7 +1,6 @@
 package com.tman.mychat
 
 import android.os.Bundle
-import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import androidx.appcompat.app.AppCompatActivity
@@ -22,11 +21,11 @@ class MainActivity : AppCompatActivity() {
     private val messageList = mutableListOf<Message>()
 
     private fun sendMessage(text: String, isMe: Boolean) {
-        messageList.add(Message(text, isMe))
+        messageList.add(Message(text, isMe, null))
         chatAdapter.notifyItemInserted(messageList.size - 1)
 
-        val recycleview = findViewById<RecyclerView>(R.id.chatRecyclerView)
-        recycleview.scrollToPosition(messageList.size - 1)
+        val recyclerview = findViewById<RecyclerView>(R.id.chatRecyclerView)
+        recyclerview.scrollToPosition(messageList.size - 1)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {//Bundleは入力途中の一時データ ?はNullの場合があるかもしれない
@@ -67,7 +66,7 @@ class MainActivity : AppCompatActivity() {
             val text = messageInput.text.toString()
             if (text.isNotEmpty()) {
                 // リストにデータを追加
-                messageList.add(Message(text, true))
+                messageList.add(Message(text, true, null))
                 // Adapterに「データが増えたよ」と通知（これで画面が更新される）
                 chatAdapter.notifyItemInserted(messageList.size - 1)
                 // 入力欄を空にする
