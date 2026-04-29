@@ -113,6 +113,8 @@ obj/
 hs_err_pid*
 
 ## Plugin-specific files:
+*.bin
+*.lock
 
 # mpeltonen/sbt-idea plugin
 .idea_modules/

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<navigation xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/nav_graph"
+    app:startDestination="@id/roomListFragment">
+
+    <fragment
+        android:id="@+id/roomListFragment"
+        android:name="com.tman.mychat.RoomListFragment"
+        android:label="ルーム一覧" >
+        <action
+            android:id="@+id/action_list_to_room"
+            app:destination="@id/chatRoomFragment" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/chatRoomFragment"
+        android:name="com.tman.mychat.ChatRoomFragment"
+        android:label="チャット" >
+        <argument
+            android:name="roomId"
+            app:argType="integer" />
+    </fragment>
+
+</navigation>
