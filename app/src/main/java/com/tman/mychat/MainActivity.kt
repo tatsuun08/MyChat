@@ -11,6 +11,9 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.tman.mychat.R.id
 import com.tman.mychat.databinding.ActivityMainBinding
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
+import kotlin.collections.mutableListOf
 
 class MainActivity : AppCompatActivity() {
 
@@ -35,14 +38,25 @@ class MainActivity : AppCompatActivity() {
 
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        // データベースとDaoのインスタンスを取得
+        val db = AppDatabase.getDatabase(applicationContext)
+        val messageDao = db.messageDao()
 
-        // 1. Adapterの準備
+        // データの取得 (Select)
+        lifecycleScope.launch {
+            val allMessages = messageDao.getMessages()
+            allMessages.forEach { message ->
+                messageList.add(Message(message.text, message.isMe, null))
+            }
+        }
+
+        // Adapterの準備
         chatAdapter = ChatAdapter(messageList)
         val recyclerView = findViewById<RecyclerView>(id.chatRecyclerView)
         recyclerView.adapter = chatAdapter //recycleViewとChatAdapterの接続
         recyclerView.layoutManager = LinearLayoutManager(this)//?
 
-        // 2. 送信ボタンの処理
+        // 送信ボタンの処理
         val sendButton = findViewById<Button>(id.sendButton)
         val messageInput = findViewById<EditText>(id.messageInput)
 
@@ -86,7 +100,17 @@ class MainActivity : AppCompatActivity() {
                 else {
                     replyText = "[${text}って言った？]"
                 }
-
+                // コルーチン内でデータの保存・取得を実行
+                lifecycleScope.launch {
+                    // データの保存 (Upsert)
+                    val newMessages = mutableListOf(
+                        MessageEntity(text = text, senderId = 1, isMe = true, messageId = 0),
+                    )
+                    if (replyText != ""){
+                        newMessages.add(MessageEntity(text = replyText, senderId = 2, isMe = false, messageId = 0))
+                    }
+                    messageDao.upsertMessage(newMessages)
+                }
                 sendMessage(replyText, false)
                 recyclerView.scrollToPosition(messageList.size - 1)
             }
