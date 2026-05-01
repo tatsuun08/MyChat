@@ -9,6 +9,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
+import androidx.navigation.fragment.findNavController
 import androidx.navigation.fragment.navArgs
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.tman.mychat.databinding.FragmentChatRoomBinding
@@ -47,6 +48,8 @@ class ChatRoomFragment : Fragment(R.layout.fragment_chat_room) {
 
         // 受け取った roomId を確認
         val currentRoomId = args.roomId
+        val currentRoomName = args.roomName
+        binding.roomName.text = currentRoomName
         WindowCompat.setDecorFitsSystemWindows(requireActivity().window, false)
 
         // データベースとDaoのインスタンスを取得
@@ -61,14 +64,14 @@ class ChatRoomFragment : Fragment(R.layout.fragment_chat_room) {
 
         // データの取得 (Select)
         lifecycleScope.launch {
-            val allMessages = messageDao.getMessages()
+
+            val allMessages = messageDao.getMessagesByRoom(currentRoomId)
             allMessages.forEach { message ->
                 messageList.add(Message(message.text, message.isMe, null))
             }
             chatAdapter.notifyDataSetChanged()
         }
 
-        // 送信ボタンの処理
         val sendButton = binding.sendButton
         val messageInput = binding.messageInput
 
@@ -104,20 +107,26 @@ class ChatRoomFragment : Fragment(R.layout.fragment_chat_room) {
                     text.startsWith("/hello") -> "こんにちは"
                     else -> "[$text って言った？]"
                 }
-                // コルーチン内でデータの保存・取得を実行
+                // コルーチン内でデータの保存・取得
+                val currentRoomId = args.roomId
                 lifecycleScope.launch {
                     // データの保存 (Upsert)
                     val newMessages = mutableListOf(
-                        MessageEntity(text = text, senderId = 1, isMe = true, messageId = 0),
+                        MessageEntity(text = text, senderId = 1, isMe = true, roomId = currentRoomId, messageId = 0),
                     )
                     if (replyText != ""){
-                        newMessages.add(MessageEntity(text = replyText, senderId = 2, isMe = false, messageId = 0))
+                        newMessages.add(MessageEntity(text = replyText, senderId = 2, isMe = false, roomId = currentRoomId, messageId = 0))
                     }
                     messageDao.upsertMessage(newMessages)
                 }
                 sendMessage(replyText, false)
                 recyclerView.scrollToPosition(messageList.size - 1)
             }
+        }
+        //送信ボダンを起こされたときの処理
+        binding.roomListButton.setOnClickListener {
+            // 一つ前の画面に戻る命令
+            findNavController().navigateUp()
         }
     }
 

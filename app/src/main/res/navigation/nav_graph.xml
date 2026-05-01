@@ -20,6 +20,9 @@
         <argument
             android:name="roomId"
             app:argType="integer" />
+        <argument
+            android:name="roomName"
+            app:argType="string" />
     </fragment>
 
 </navigation>

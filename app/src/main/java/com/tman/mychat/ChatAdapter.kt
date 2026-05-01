@@ -1,6 +1,5 @@
 package com.tman.mychat
 
-import com.tman.mychat.R
 import com.tman.mychat.R.id
 import android.view.LayoutInflater
 import android.view.View

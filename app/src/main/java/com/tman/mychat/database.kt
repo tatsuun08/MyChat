@@ -16,6 +16,8 @@ data class MessageEntity(
     val text : String,
     val senderId : Int,
     val isMe : Boolean,
+    @ColumnInfo(name =  "room_id")
+    val roomId : Int,
     @PrimaryKey(autoGenerate = true)
     @ColumnInfo(name = "message_id")
     val messageId : Int,
@@ -34,9 +36,9 @@ data class UserEntity(
 data class RoomEntity(
     val name : String,
     val icon : String,
-    @PrimaryKey
+    @PrimaryKey(autoGenerate = true)
     @ColumnInfo(name = "room_id")
-    val roomId : Int,
+    val roomId : Int = 0,
 )
 
 @Entity(
@@ -55,8 +57,20 @@ interface MessageDao {
     @Query("SELECT * FROM message")
     suspend fun getMessages(): List<MessageEntity>
 
+    @Query("SELECT * FROM message WHERE room_id = :roomId")
+    suspend fun getMessagesByRoom(roomId: Int): List<MessageEntity>
+
     @Upsert
     suspend fun upsertMessage(messages: List<MessageEntity>)
+}
+
+@Dao
+interface RoomDao {
+    @Query("SELECT * FROM room")
+    suspend fun getRooms(): List<RoomEntity>
+
+    @Upsert
+    suspend fun upsertRoom(rooms: List<RoomEntity>)
 }
 
 @Database(
@@ -66,11 +80,12 @@ interface MessageDao {
         RoomEntity::class,
         RoomUser::class
    ],
-    version = 1,
+    version = 3,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun messageDao(): MessageDao
+    abstract fun roomDao(): RoomDao
 
     companion object {
         @Volatile
@@ -82,7 +97,9 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "chat_database"
-                ).build()
+                )
+                .fallbackToDestructiveMigration(false)
+                .build()
                 INSTANCE = instance
                 instance
             }
