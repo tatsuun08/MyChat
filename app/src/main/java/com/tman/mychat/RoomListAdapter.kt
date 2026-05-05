@@ -24,11 +24,9 @@ class RoomListAdapter(private var roomList: List<RoomEntity>) :
         val room = roomList[position]
         holder.roomNameText.text = room.name
 
-        // 💡 onClickListener の波括弧の中に「view ->」を追加してViewを受け取ります
         holder.itemView.setOnClickListener { view ->
             val action = RoomListFragmentDirections.actionListToRoom(room.roomId, room.name)
 
-            // 2. タップされた「View」にお願いして、ナビゲーションを実行してもらう
             view.findNavController().navigate(action)
         }
     }

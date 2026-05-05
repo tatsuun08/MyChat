@@ -32,6 +32,13 @@
             android:textSize="18sp"
             android:textStyle="bold"
             android:gravity="center" />
+
+        <Button
+            android:id="@+id/inviteButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="招待"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
     </LinearLayout>
 
     <androidx.recyclerview.widget.RecyclerView

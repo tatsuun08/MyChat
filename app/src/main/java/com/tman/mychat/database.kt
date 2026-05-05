@@ -41,16 +41,6 @@ data class RoomEntity(
     val roomId : Int = 0,
 )
 
-@Entity(
-    tableName = "room_user",
-    primaryKeys = ["room_id", "user_id"],
-)
-data class RoomUser(
-    @ColumnInfo(name = "room_id")
-    val roomId : Int,
-    @ColumnInfo(name = "user_id")
-    val userId : Int
-)
 
 @Dao
 interface MessageDao {
@@ -73,19 +63,20 @@ interface RoomDao {
     suspend fun upsertRoom(rooms: List<RoomEntity>)
 }
 
+
 @Database(
     entities = [
         MessageEntity::class,
         UserEntity::class,
         RoomEntity::class,
-        RoomUser::class
    ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun messageDao(): MessageDao
     abstract fun roomDao(): RoomDao
+
 
     companion object {
         @Volatile
