@@ -26,8 +26,9 @@
 * SQLite（ローカル）
 
 ### 基本機能
+<img src="./img/login.png" width="30%"> <img src="./img/create_room.png" width="30%"> <img src="./img/room_list.png" width="30%">
+<img src="./img/send_message.png" width="30%">  <img src="./img/invite_user.png" width="30%"> <img src="./img/load_other_user_message.png" width="30%">
 
-## 使い方
 
 ## 実装済み
 * クライアントからメッセージを送信するときにAES暗号化
