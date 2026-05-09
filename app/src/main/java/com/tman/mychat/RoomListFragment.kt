@@ -251,9 +251,6 @@ class RoomListFragment : Fragment(R.layout.fragment_room_list) {
     private fun login(sharedPref: SharedPreferences, db: AppDatabase) {
         val myUserId = sharedPref.getInt("myUserId", -1)
 
-        // ★ ここに足跡ログを追加！
-        Log.d("ChatApp", "【現在のID確認】 myUserId = $myUserId")
-
         if (myUserId == -1) {
             showLoginDialog(sharedPref)
         } else {

@@ -16,7 +16,6 @@ data class RoomRequest(
     val name: String
 )
 
-
 data class UserResponse(
     val id: Int,
     val name: String
@@ -52,7 +51,6 @@ data class MessageResponse(
 
 
 
-
 // 3. 通信のルールブック（インターフェース）
 interface ChatApi {
     // ★ログイン（ユーザー登録）用のAPI
@@ -67,11 +65,13 @@ interface ChatApi {
     @POST("rooms")
     suspend fun createRoom(@Body request: RoomRequest): RoomResponse
 
+    //RoomEntityを作成して登録
     @POST("room_user")
     suspend fun createRoomUser(@Body request: RoomUserRequest): RoomUserResponse
 
+    //RoomIDに一致するメッセージを取得
     @GET("messages")
-    suspend fun getMessages(@Query("room_id") roomId: Int): List<MessageResponse>
+    suspend fun getMessages(@Query("room_id") roomId: Int): List<MessageResponse>//Query("room_id") http://localhost:PORT/messages?room_id={$roomId}
 
     @POST("messages")
     suspend fun createMessage(@Body request: MessageRequest): MessageResponse

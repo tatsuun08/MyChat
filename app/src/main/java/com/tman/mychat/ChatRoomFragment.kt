@@ -117,16 +117,21 @@ class ChatRoomFragment : Fragment(R.layout.fragment_chat_room) {
                 }
                 // コルーチン内でデータの保存・取得
                 val currentRoomId = args.roomId
+
+                // 💡 2. サーバーやDBに保存するために、ここで暗号化する！！
+                val encryptedText = CryptoManager.encrypt(text)
+                val encryptedReply = replyText?.let { CryptoManager.encrypt(it) }
+
                 lifecycleScope.launch {
                     // データの保存 (Upsert)
                     val newMessages = mutableListOf(
-                        MessageEntity(text = text, senderId = myUserId, isMe = true, roomId = currentRoomId, messageId = 0),
+                        MessageEntity(text = encryptedText, senderId = myUserId, isMe = true, roomId = currentRoomId, messageId = 0),
                     )
                     if (replyText != null){
                         newMessages.add(MessageEntity(text = replyText, senderId = 2, isMe = false, roomId = currentRoomId, messageId = 0))
                     }
                     messageDao.upsertMessage(newMessages)
-                    RetrofitClient.api.createMessage(MessageRequest(id = 0, text = text, senderID = myUserId, roomID = currentRoomId))
+                    RetrofitClient.api.createMessage(MessageRequest(id = 0, text = encryptedText, senderID = myUserId, roomID = currentRoomId))
                 }
 
                 recyclerView.scrollToPosition(messageList.size - 1)
@@ -164,9 +169,13 @@ class ChatRoomFragment : Fragment(R.layout.fragment_chat_room) {
 
 
             val allMessages = messageDao.getMessagesByRoom(currentRoomId)
+
             messageList.clear()
             allMessages.forEach { message ->
-                messageList.add(Message(message.text, message.isMe, null))
+                // 💡 5. ここで復号化！暗号を人間の読める文字に戻してから画面に追加する
+                val decryptedText = CryptoManager.decrypt(message.text)
+
+                messageList.add(Message(decryptedText, message.isMe, null))
             }
             chatAdapter.notifyDataSetChanged()
             if (messageList.isNotEmpty()) {
