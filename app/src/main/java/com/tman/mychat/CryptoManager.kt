@@ -6,12 +6,18 @@ import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
 object CryptoManager {
-    //AES暗号を採用
+    //使い捨てのAES
     private const val ALGORITHM = "AES/CBC/PKCS5Padding"
-
     // 秘密の鍵（16文字）いったんハードコード
     private val SECRET_KEY = SecretKeySpec("MySuperSecretKey".toByteArray(), "AES")
     private val IV = IvParameterSpec("MySuperSecretIV1".toByteArray())
+
+    //【TODO】送信相手の公開鍵の取得
+    //AES鍵でテキストメッセージを暗号化
+    //AES鍵を送信相手の公開鍵で暗号化　O(N)
+    //暗号分と暗号化された鍵を送信
+    //復号　AES鍵を復号
+    //復号された鍵で暗号文を復元
 
     // メッセージを暗号化する
     fun encrypt(plainText: String): String {

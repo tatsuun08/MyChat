@@ -3,6 +3,8 @@ package com.tman.mychat
 import android.content.Context
 import android.content.SharedPreferences
 import android.os.Bundle
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
@@ -20,7 +22,45 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.security.KeyPairGenerator
+import java.security.KeyStore
 import java.util.zip.Inflater
+
+
+//RSAの鍵ペアを生成
+fun generateRsaKeyForEncyption(alias: String) {
+    val keyPairGenerator = KeyPairGenerator.getInstance(
+        KeyProperties.KEY_ALGORITHM_RSA, //アルゴリズムの指定
+        "AndroidKeyStore" //プロバイダの指定
+    )
+
+    val parameterSpec = KeyGenParameterSpec.Builder(
+        alias,
+        KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT //目的は暗号化と復号化
+    ).run {
+        setBlockModes(KeyProperties.BLOCK_MODE_ECB)
+        setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_RSA_OAEP)
+        setDigests(KeyProperties.DIGEST_SHA256, KeyProperties.DIGEST_SHA512)
+        setKeySize(2048)
+        build()
+    }
+
+    keyPairGenerator.initialize(parameterSpec)
+    keyPairGenerator.generateKeyPair()
+}
+
+//鍵の削除
+fun deleteRsaKey(alias: String) {
+    // 1. AndroidKeyStoreのインスタンスを取得
+    val keyStore = KeyStore.getInstance("AndroidKeyStore").apply {
+        load(null)
+    }
+
+    // 2. 指定したエイリアス（名前）の鍵が存在するか確認して削除
+    if (keyStore.containsAlias(alias)) {
+        keyStore.deleteEntry(alias)
+    }
+}
 
 class RoomListFragment : Fragment(R.layout.fragment_room_list) {
     private var _binding: FragmentRoomListBinding? = null
@@ -55,12 +95,6 @@ class RoomListFragment : Fragment(R.layout.fragment_room_list) {
 
         syncRooms()
 
-
-//        // --- ★ここからテスト通信のコード ---
-//        lifecycleScope.launch {
-//            testServerConnection()
-//        }
-
         //RecyclerView と Adapter のセットアップ
         binding.roomRecyclerView.apply {
             adapter = roomAdapter
@@ -78,6 +112,9 @@ class RoomListFragment : Fragment(R.layout.fragment_room_list) {
                 }
                 // SharedPreferences の中身を空にする
                 sharedPref.edit().clear().apply()
+
+                //秘密鍵の削除
+                deleteRsaKey("myKey")
 
                 // 再度ログインダイアログを表示（またはログイン画面へ遷移）
                 showLoginDialog(sharedPref)
@@ -117,7 +154,7 @@ class RoomListFragment : Fragment(R.layout.fragment_room_list) {
         _binding = null // メモリリーク防止
     }
 
-    //データベースからルームリストをロード，アダプターに渡す
+    //ローカルデータベースからルームリストをロード，リサイクルビューの更新
     private fun loadRooms(roomDao: RoomDao) {
         lifecycleScope.launch {
             val rooms = roomDao.getRooms()
@@ -251,12 +288,28 @@ class RoomListFragment : Fragment(R.layout.fragment_room_list) {
     private fun login(sharedPref: SharedPreferences, db: AppDatabase) {
         val myUserId = sharedPref.getInt("myUserId", -1)
 
+        //userIDが取得できない場合　
         if (myUserId == -1) {
+            //ログインダイアログの処理
             showLoginDialog(sharedPref)
+
         } else {
             Log.d("ChatApp", "ログイン済みです！私のID: $myUserId")
             syncRooms()
             loadRooms(db.roomDao())
+        }
+        //鍵のロード
+        val ks : KeyStore = KeyStore.getInstance("AndroidKeyStore").apply{
+            load(null)
+        }
+        //鍵のエイリアス
+        val entry = ks.getEntry("myKey", null)
+        if (entry == null) {
+            Log.d("ChatApp", "鍵がありません");
+            Log.d("ChatApp", "鍵を作成します");
+            //ログインするたびに新しい鍵を生成，【TODO】古いメッセージが観れなくなる
+            generateRsaKeyForEncyption("myKey")
+            return
         }
     }
 }
