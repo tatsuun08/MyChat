@@ -16,10 +16,12 @@ import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.findNavController
 import androidx.navigation.fragment.navArgs
 import androidx.recyclerview.widget.LinearLayoutManager
+import com.google.gson.Gson
 import com.tman.mychat.databinding.FragmentChatRoomBinding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.internal.http.RetryAndFollowUpInterceptor
 
 
 class ChatRoomFragment : Fragment(R.layout.fragment_chat_room) {
@@ -64,6 +66,10 @@ class ChatRoomFragment : Fragment(R.layout.fragment_chat_room) {
         // データベースとDaoのインスタンスを取得
         val db = AppDatabase.getDatabase(requireContext())
         val messageDao = db.messageDao()
+        val userDao = db.userDao()
+
+        //同期処理
+        syncUserByRoom(userDao, currentRoomId)
 
         // Adapterの準備
         chatAdapter = ChatAdapter(messageList)
@@ -119,20 +125,66 @@ class ChatRoomFragment : Fragment(R.layout.fragment_chat_room) {
                 val currentRoomId = args.roomId
 
                 // 💡 2. サーバーやDBに保存するために、ここで暗号化する！！
-                val encryptedText = CryptoManager.encrypt(text)
-                val encryptedReply = replyText?.let { CryptoManager.encrypt(it) }
-
+                // ユーザーの最新情報を取得
+                syncUserByRoom(userDao, currentRoomId)
+                // Roomから所属しているユーザーの公開鍵を取得
+                val userList = mutableListOf<UserEntity>()
                 lifecycleScope.launch {
-                    // データの保存 (Upsert)
-                    val newMessages = mutableListOf(
-                        MessageEntity(text = encryptedText, senderId = myUserId, isMe = true, roomId = currentRoomId, messageId = 0),
-                    )
-                    if (replyText != null){
-                        newMessages.add(MessageEntity(text = replyText, senderId = 2, isMe = false, roomId = currentRoomId, messageId = 0))
+                    userDao.getUsersByRoom(currentRoomId).forEach { user ->
+                        userList.add(user)
                     }
-                    messageDao.upsertMessage(newMessages)
-                    RetrofitClient.api.createMessage(MessageRequest(id = 0, text = encryptedText, senderID = myUserId, roomID = currentRoomId))
                 }
+                //部屋にいるユーザーに各公開鍵で暗号化されたAES鍵と暗号文を送る
+                lifecycleScope.launch {
+                    try {
+                        // 1. AESで本文を暗号化
+                        val aesKey = CryptoManager.generateAESKey()
+                        val encryptedText = AesCrypto.encrypt(text, aesKey)
+
+                        // 2. 部屋のユーザー全員分、AES鍵をRSAで暗号化してリストを作る
+                        val roomUsers = db.userDao().getUsersByRoom(currentRoomId)
+                        val keyList = mutableListOf<KeyInfo>()
+
+                        roomUsers.forEach { user ->
+                            if (user.publicKey.isNotEmpty()) {
+                                // 相手の公開鍵でAES鍵をロック
+                                val rsaEncryptedKey = CryptoManager.encryptAESKeyWithRSA(aesKey, user.publicKey)
+
+                                // リストに追加
+                                keyList.add(KeyInfo(userId = user.userId, key = rsaEncryptedKey))
+                            }
+                        }
+
+                        // 3. 全体をひとまとめにする
+                        val payload = MessagePayload(
+                            encryptedText = encryptedText,
+                            encryptedKeys = keyList
+                        )
+
+                        // 4. GsonでJSON文字列に変換
+                        val jsonString = Gson().toJson(payload)
+
+                        // データの保存 (Upsert)
+                        val newMessages = mutableListOf(
+                            MessageEntity(text = text, senderId = myUserId, isMe = true, roomId = currentRoomId, messageId = 0),
+                        )
+                        if (replyText != null){
+                            newMessages.add(MessageEntity(text = replyText, senderId = 0, isMe = false, roomId = currentRoomId, messageId = 0))
+                        }
+                        messageDao.upsertMessage(newMessages)
+
+                        // 5. サーバーへ送信 jsonで鍵と内容をまとめて送信
+                        RetrofitClient.api.createMessage(
+                            MessageRequest(id = 0, text = jsonString, senderID = myUserId, roomID = currentRoomId)
+                        )
+
+                    } catch (e: Exception) {
+                        Log.e("Crypto", "JSON作成・送信エラー", e)
+                    }
+
+                }
+                //【TODO】UserEntityが公開鍵を持っていないので，データベース更新
+                val publicKeyString = userList.firstOrNull()?.publicKey ?: ""
 
                 recyclerView.scrollToPosition(messageList.size - 1)
             }
@@ -143,7 +195,7 @@ class ChatRoomFragment : Fragment(R.layout.fragment_chat_room) {
             findNavController().navigateUp()
         }
 
-        //同期 roomIDのメッセージを取得
+        //同期 roomIDのメッセージを取得　【TODO】同期処理と画面更新を分ける
         lifecycleScope.launch {
             try {
                 // 1. サーバーから最新のメッセージ一覧を取得して変数に入れる
@@ -151,12 +203,47 @@ class ChatRoomFragment : Fragment(R.layout.fragment_chat_room) {
 
                 // 2. サーバーのデータをローカルDB用(MessageEntity)に変換する
                 val messageEntities = remoteMessages.map { response ->
+                    // 💡 あらかじめ平文を入れる変数を用意
+                    var decryptedText = ""
+
+                    try {
+                        // 文字列をJSONオブジェクト（Mapのようなもの）に変換
+                        val jsonObject = org.json.JSONObject(response.text)
+
+                        // "encrypted_text" の値を取り出す
+                        val encryptedContent = jsonObject.getString("encrypted_text")
+                        // "encrypted_keys" の配列（リスト）を取り出す
+                        val keysArray = jsonObject.getJSONArray("encrypted_keys")
+
+                        // 自分のユーザーIDと一致する鍵を探す
+                        var myEncryptedAesKey: String? = null
+                        for (i in 0 until keysArray.length()) {
+                            val keyInfo = keysArray.getJSONObject(i)
+                            if (keyInfo.getInt("user_id") == myUserId) {
+                                myEncryptedAesKey = keyInfo.getString("key")
+                                break // 見つかったらループ終了
+                            }
+                        }
+
+                        // 自分の鍵が見つかったら復号化を実行！
+                        if (myEncryptedAesKey != null) {
+                            val decryptedKey = CryptoManager.decryptAESKeyWithRSA(myEncryptedAesKey)
+                            // AESで復号化
+                            decryptedText = CryptoManager.decrypt(encryptedContent, decryptedKey)
+                        } else {
+                            decryptedText = "[このメッセージはあなたには暗号化されていません]"
+                        }
+
+                    } catch (e: Exception) {
+                        decryptedText = "複合に失敗しました"
+                    }
+
+                    // 💡 最終的にDBに保存する Entity を作る
                     MessageEntity(
-                        messageId = response.id, // サーバーで割り当てられたID
+                        messageId = response.id,
                         roomId = currentRoomId,
                         senderId = response.senderID,
-                        text = response.text,
-                        // ★重要：送信者IDが、自分のIDと同じなら isMe を true にする！
+                        text = decryptedText, // ✨ ここにはすでに「復号済みの読める文字」が入る！
                         isMe = (response.senderID == myUserId)
                     )
                 }
@@ -172,10 +259,8 @@ class ChatRoomFragment : Fragment(R.layout.fragment_chat_room) {
 
             messageList.clear()
             allMessages.forEach { message ->
-                // 💡 5. ここで復号化！暗号を人間の読める文字に戻してから画面に追加する
-                val decryptedText = CryptoManager.decrypt(message.text)
 
-                messageList.add(Message(decryptedText, message.isMe, null))
+                messageList.add(Message(message.text, message.isMe, null))
             }
             chatAdapter.notifyDataSetChanged()
             if (messageList.isNotEmpty()) {
@@ -212,8 +297,8 @@ class ChatRoomFragment : Fragment(R.layout.fragment_chat_room) {
             try {
                 // 1. まず、入力された名前からその人の「ユーザーID」を取得する
                 // （既存の loginUser API を「検索用」として使い回す裏技！）
-                val userResponse = RetrofitClient.api.loginUser(UserRequest(name = inviteeName))
-                val inviteeId = userResponse.id
+                val userResponse = RetrofitClient.api.searchUser(inviteeName)
+                val inviteeId = userResponse.userId
 
                 // 2. 取得したユーザーIDと、今の部屋のIDを紐付ける（中間テーブルに登録！）
                 val request = RoomUserRequest(roomID = roomId, userID = inviteeId)
@@ -240,4 +325,26 @@ class ChatRoomFragment : Fragment(R.layout.fragment_chat_room) {
             }
         }
     }
+
+    fun syncUserByRoom(userDao: UserDao, currentRoomId : Int) {
+        lifecycleScope.launch {
+            //サーバーのエンドポイントからルームのユーザーを取得
+            val userList = RetrofitClient.api.getUsersByRoom(currentRoomId)
+            userDao.setUserByRoom(userList.map { user ->
+                UserEntity(user.name, "", user.id, user.publicKey)
+            })
+        }
+    }
 }
+
+// 1つの鍵情報を表すクラス
+data class KeyInfo(
+    val userId: Int,
+    val key: String
+)
+
+// 送信するメッセージ全体の構造
+data class MessagePayload(
+    val encryptedText: String,
+    val encryptedKeys: List<KeyInfo> // 複数人分をリストで保持
+)

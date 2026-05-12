@@ -18,10 +18,12 @@ data class RoomRequest(
 
 data class UserResponse(
     val id: Int,
-    val name: String
+    val name: String,
+    val publicKey : String
 )
 data class UserRequest(
-    val name: String
+    val name: String,
+    val publicKey : String
 )
 
 
@@ -57,6 +59,9 @@ interface ChatApi {
     @POST("users")
     suspend fun loginUser(@Body request: UserRequest): UserResponse
 
+    @GET("users")
+    suspend fun getUsersByRoom(@Query("room_id") roomId: Int): List<UserResponse>
+
     // GETリクエストで /rooms にアクセスし、部屋のリストを受け取る
     @GET("rooms")
     suspend fun getRooms(@Query("user_id") userId: Int): List<RoomResponse>
@@ -75,4 +80,7 @@ interface ChatApi {
 
     @POST("messages")
     suspend fun createMessage(@Body request: MessageRequest): MessageResponse
+
+    @GET("users/search")
+    suspend fun searchUser(@Query("name") name: String): UserEntity
 }
