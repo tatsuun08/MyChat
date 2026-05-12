@@ -27,40 +27,8 @@ import java.security.KeyStore
 import java.util.zip.Inflater
 
 
-//RSAの鍵ペアを生成
-fun generateRsaKeyForEncyption(alias: String) {
-    val keyPairGenerator = KeyPairGenerator.getInstance(
-        KeyProperties.KEY_ALGORITHM_RSA, //アルゴリズムの指定
-        "AndroidKeyStore" //プロバイダの指定
-    )
 
-    val parameterSpec = KeyGenParameterSpec.Builder(
-        alias,
-        KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT //目的は暗号化と復号化
-    ).run {
-        setBlockModes(KeyProperties.BLOCK_MODE_ECB)
-        setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_RSA_OAEP)
-        setDigests(KeyProperties.DIGEST_SHA256, KeyProperties.DIGEST_SHA512)
-        setKeySize(2048)
-        build()
-    }
 
-    keyPairGenerator.initialize(parameterSpec)
-    keyPairGenerator.generateKeyPair()
-}
-
-//鍵の削除
-fun deleteRsaKey(alias: String) {
-    // 1. AndroidKeyStoreのインスタンスを取得
-    val keyStore = KeyStore.getInstance("AndroidKeyStore").apply {
-        load(null)
-    }
-
-    // 2. 指定したエイリアス（名前）の鍵が存在するか確認して削除
-    if (keyStore.containsAlias(alias)) {
-        keyStore.deleteEntry(alias)
-    }
-}
 
 class RoomListFragment : Fragment(R.layout.fragment_room_list) {
     private var _binding: FragmentRoomListBinding? = null
@@ -114,10 +82,10 @@ class RoomListFragment : Fragment(R.layout.fragment_room_list) {
                 sharedPref.edit().clear().apply()
 
                 //秘密鍵の削除
-                deleteRsaKey("myKey")
+                CryptoManager.deleteRsaKey("myChatKey")
 
                 // 再度ログインダイアログを表示（またはログイン画面へ遷移）
-                showLoginDialog(sharedPref)
+                login(sharedPref, db)
 
                 // UIをリセット（名前を消すなど）
                 updateUserUI(sharedPref)
@@ -247,8 +215,10 @@ class RoomListFragment : Fragment(R.layout.fragment_room_list) {
                 if (userName.isNotEmpty()) {
                     lifecycleScope.launch {
                         try {
+                            //ログイン時にパブリックキーをデータベースに保存
+                            val myPublicKey = CryptoManager.getMyPublicKeyString() ?: ""
                             // 1. Goサーバーに名前を送信！
-                            val response = RetrofitClient.api.loginUser(UserRequest(name = userName))
+                            val response = RetrofitClient.api.loginUser(UserRequest(name = userName, publicKey = myPublicKey))
 
                             // 2. サーバーから返ってきた自分のIDを SharedPreferences に永久保存！
                             sharedPref.edit().putInt("myUserId", response.id).apply()
@@ -287,6 +257,18 @@ class RoomListFragment : Fragment(R.layout.fragment_room_list) {
 
     private fun login(sharedPref: SharedPreferences, db: AppDatabase) {
         val myUserId = sharedPref.getInt("myUserId", -1)
+        //鍵のロード
+        val ks : KeyStore = KeyStore.getInstance("AndroidKeyStore").apply{
+            load(null)
+        }
+        //鍵のエイリアス
+        var entry = ks.getEntry("myChatKey", null)
+        if (entry == null) {
+            Log.d("ChatApp", "鍵がありません");
+            Log.d("ChatApp", "鍵を作成します");
+            //ログインするたびに新しい鍵を生成，【TODO】古いメッセージが観れなくなる
+            CryptoManager.generateRSAKeyPairIfNeeded()
+        }
 
         //userIDが取得できない場合　
         if (myUserId == -1) {
@@ -298,18 +280,6 @@ class RoomListFragment : Fragment(R.layout.fragment_room_list) {
             syncRooms()
             loadRooms(db.roomDao())
         }
-        //鍵のロード
-        val ks : KeyStore = KeyStore.getInstance("AndroidKeyStore").apply{
-            load(null)
-        }
-        //鍵のエイリアス
-        val entry = ks.getEntry("myKey", null)
-        if (entry == null) {
-            Log.d("ChatApp", "鍵がありません");
-            Log.d("ChatApp", "鍵を作成します");
-            //ログインするたびに新しい鍵を生成，【TODO】古いメッセージが観れなくなる
-            generateRsaKeyForEncyption("myKey")
-            return
-        }
+
     }
 }
