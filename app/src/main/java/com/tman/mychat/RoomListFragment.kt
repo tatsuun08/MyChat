@@ -85,7 +85,7 @@ class RoomListFragment : Fragment(R.layout.fragment_room_list) {
                 CryptoManager.deleteRsaKey("myChatKey")
 
                 // 再度ログインダイアログを表示（またはログイン画面へ遷移）
-                showLoginDialog(sharedPref)
+                login(sharedPref, db)
 
                 // UIをリセット（名前を消すなど）
                 updateUserUI(sharedPref)
@@ -268,17 +268,6 @@ class RoomListFragment : Fragment(R.layout.fragment_room_list) {
             Log.d("ChatApp", "鍵を作成します");
             //ログインするたびに新しい鍵を生成，【TODO】古いメッセージが観れなくなる
             CryptoManager.generateRSAKeyPairIfNeeded()
-            // 1. SharedPreferencesのファイルを開く
-            val sharedPref = requireActivity().getSharedPreferences("ChatAppPrefs", Context.MODE_PRIVATE)
-
-            val newEntry = ks.getCertificate("myChatKey")
-
-            // 2. 編集モード（Editor）にして保存する
-            val editor = sharedPref.edit()
-            editor.putString("myPublicKey", newEntry.publicKey.toString())
-
-            // 3. 最後に必ず apply() で変更を確定する！
-            editor.apply()
         }
 
         //userIDが取得できない場合　

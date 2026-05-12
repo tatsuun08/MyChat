@@ -19,7 +19,7 @@ data class RoomRequest(
 data class UserResponse(
     val id: Int,
     val name: String,
-    val publicKey : String
+    @SerializedName("public_key") val publicKey : String?
 )
 data class UserRequest(
     val name: String,
@@ -59,8 +59,11 @@ interface ChatApi {
     @POST("users")
     suspend fun loginUser(@Body request: UserRequest): UserResponse
 
-    @GET("users")
+    @GET("room_users/list")
     suspend fun getUsersByRoom(@Query("room_id") roomId: Int): List<UserResponse>
+
+    @POST("users/public_key")
+    suspend fun updatePublicKey(@Query("user_id") userId : Int, @Body publicKey: okhttp3.RequestBody) //【TODO】認証がないと実行できない仕組み
 
     // GETリクエストで /rooms にアクセスし、部屋のリストを受け取る
     @GET("rooms")
@@ -82,5 +85,5 @@ interface ChatApi {
     suspend fun createMessage(@Body request: MessageRequest): MessageResponse
 
     @GET("users/search")
-    suspend fun searchUser(@Query("name") name: String): UserEntity
+    suspend fun searchUser(@Query("name") name: String): UserResponse
 }

@@ -9,12 +9,15 @@ import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.PublicKey
 import java.security.SecureRandom
+import java.security.spec.MGF1ParameterSpec
 import java.security.spec.X509EncodedKeySpec
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.IvParameterSpec
+import javax.crypto.spec.OAEPParameterSpec
+import javax.crypto.spec.PSource
 import javax.crypto.spec.SecretKeySpec
 
 
@@ -43,11 +46,10 @@ object CryptoManager {
         }
     }
 
-    //メッセージの複合
+    //メッセージの復号
     fun decrypt(encryptedText: String, encryptedKey: SecretKey): String {
         return try {
-            val decryptedKey = decryptAESKeyWithRSA(encryptedKey.encoded.toString())
-            AesCrypto.decrypt(encryptedText, decryptedKey)
+            AesCrypto.decrypt(encryptedText, encryptedKey)
         } catch (e: Exception) {
             encryptedText
         }
@@ -71,8 +73,9 @@ object CryptoManager {
         val publicKey = kf.generatePublic(keySpec)
 
         // 2. RSA Cipherの準備 (OAEPパディングが現代の標準)
-        val cipher = Cipher.getInstance("RSA/ECB/OAEPWithSHA-256AndMGF1Padding")
-        cipher.init(Cipher.ENCRYPT_MODE, publicKey)
+        val cipher = Cipher.getInstance("RSA/ECB/OAEPPadding")
+        val spec = OAEPParameterSpec("SHA-256", "MGF1", MGF1ParameterSpec.SHA1, PSource.PSpecified.DEFAULT)
+        cipher.init(Cipher.ENCRYPT_MODE, publicKey, spec)
 
         // 3. AES鍵の本体（バイト列）を暗号化
         val encryptedAesKeyBytes = cipher.doFinal(aesKey.encoded)
@@ -82,23 +85,31 @@ object CryptoManager {
     }
 
     //RSAによる暗号化されたAES鍵を復号化
-    fun decryptAESKeyWithRSA(encryptedAesKeyBase64: String): SecretKey {
-        // 1. Android Keystoreから秘密鍵を取得
-        val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        val privateKey = keyStore.getKey("MyChatKey", null) as java.security.PrivateKey
+    fun decryptAESKeyWithRSA(encryptedAesKeyBase64: String): SecretKey? {
+        return try {
+            // 1. Android Keystoreから秘密鍵を取得
+            val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+            val privateKey = keyStore.getKey("myChatKey", null) as java.security.PrivateKey
 
-        // 2. 受信したデータをデコード
-        val encryptedBytes = Base64Utils.decode(encryptedAesKeyBase64)
+            // 2. 受信したデータをデコード
+            val encryptedBytes = Base64Utils.decode(encryptedAesKeyBase64)
 
-        // 3. RSA Cipherの準備 (送信時と同じアルゴリズムを指定)
-        val cipher = Cipher.getInstance("RSA/ECB/OAEPWithSHA-256AndMGF1Padding")
-        cipher.init(Cipher.DECRYPT_MODE, privateKey)
+            // 3. RSA Cipherの準備 (送信時と同じアルゴリズムを指定)
+            val cipher = Cipher.getInstance("RSA/ECB/OAEPPadding")
+            val spec = OAEPParameterSpec("SHA-256", "MGF1", MGF1ParameterSpec.SHA1, PSource.PSpecified.DEFAULT)
+            cipher.init(Cipher.DECRYPT_MODE, privateKey, spec)
 
-        // 4. AES鍵を復号
-        val decryptedAesKeyBytes = cipher.doFinal(encryptedBytes)
+            // 4. AES鍵を復号
+            val decryptedAesKeyBytes = cipher.doFinal(encryptedBytes)
 
-        // 5. バイト列からAES鍵オブジェクトを再構築
-        return SecretKeySpec(decryptedAesKeyBytes, "AES")
+            // 5. バイト列からAES鍵オブジェクトを再構築
+            SecretKeySpec(decryptedAesKeyBytes, "AES")
+        }
+        catch (e : Exception) {
+            // 💡 何のエラーが起きたか詳細をログに出す！
+            Log.e("Crypto", "復号エラー詳細: ${e.javaClass.simpleName} - ${e.message}")
+            null
+        }
     }
 
     // 💡 アプリ起動時やログイン時に呼び出して、鍵を作る関数
@@ -120,7 +131,7 @@ object CryptoManager {
                 KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT // 暗号化と復号化に使う
             )
                 .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_RSA_OAEP) // OAEPパディングを使用
-                .setDigests(KeyProperties.DIGEST_SHA256, KeyProperties.DIGEST_SHA512)
+                .setDigests(KeyProperties.DIGEST_SHA256, KeyProperties.DIGEST_SHA512, KeyProperties.DIGEST_SHA1)
                 .setKeySize(2048) // セキュリティ的に十分な2048ビットを指定
                 .build()
 
