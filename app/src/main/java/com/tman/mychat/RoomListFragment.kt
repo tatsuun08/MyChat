@@ -11,6 +11,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
+import android.widget.Toast
 import android.widget.Toast.makeText
 import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.Fragment
@@ -276,47 +277,70 @@ class RoomListFragment : Fragment(R.layout.fragment_room_list) {
         }
     }
 
-    // ログイン用のダイアログを表示する関数
     private fun showLoginDialog(sharedPref: SharedPreferences) {
         val editText = EditText(requireContext())
         editText.hint = "あなたの名前を入力してください"
 
-        AlertDialog.Builder(requireContext())
+        val dialog = AlertDialog.Builder(requireContext())
             .setTitle("ログイン")
             .setView(editText)
-            .setCancelable(false) // 戻るボタンで閉じられないようにする
-            .setPositiveButton("決定") { _, _ ->
-                val userName = editText.text.toString()
-                if (userName.isNotEmpty()) {
-                    lifecycleScope.launch {
-                        try {
-                            //ログイン時にパブリックキーをデータベースに保存
-                            val myPublicKey = CryptoManager.getMyPublicKeyString() ?: ""
-                            // 1. Goサーバーに名前を送信！
-                            val response = RetrofitClient.api.loginUser(LoginRequest(name = userName, myPublicKey))
+            .setCancelable(false)
+            // 💡 1. 自動で閉じないように、一旦リスナーは null にしておく
+            .setPositiveButton("決定", null)
+            .setNegativeButton("新規登録はこちら") { _, _ -> showRegisterDialog(sharedPref) }
+            .create()
 
-                            // 2. サーバーから返ってきた自分のIDを SharedPreferences に永久保存！
-                            sharedPref.edit().putInt("myUserId", response.userId).apply()
-                            sharedPref.edit().putString("myUserName", response.userName).apply()
+        // 💡 2. ダイアログを表示
+        dialog.show()
 
-                            Log.d("ChatApp", "ログイン成功！ID: ${response.userId}")
+        // 💡 3. 表示された後に、決定ボタンのクリックイベントを手動で上書き！
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val userName = editText.text.toString().trim()
 
-                            // 3. ログインできたので、部屋の読み込みをスタート
-                            syncRooms()
-                            val db = AppDatabase.getDatabase(requireContext())
-                            updateUserUI(sharedPref)
+            // 空文字チェック
+            if (userName.isEmpty()) {
+                editText.error = "名前を入力してください" // 💡 再帰呼び出しせず、その場で警告
+                return@setOnClickListener
+            }
 
-                        } catch (e: Exception) {
-                            Log.e("ChatApp", "ログイン失敗", e)
-                            showLoginDialog(sharedPref) //TODO　ログイン失敗時にユーザー名が見つかりませんを表示
-                        }
+            lifecycleScope.launch {
+                try {
+                    val myPublicKey = CryptoManager.getMyPublicKeyString() ?: ""
+
+                    // 1. Goサーバーに名前と公開鍵を送信！
+                    // 💡 【修正】publicKey = myPublicKey と明記
+                    val response = RetrofitClient.api.loginUser(LoginRequest(name = userName, publicKey = myPublicKey))
+
+                    // 2. サーバーから返ってきた情報を保存！
+                    sharedPref.edit().apply {
+                        putInt("myUserId", response.userId)
+                        putString("myUserName", response.userName)
+                        putString("jwt_token", response.token)
+                    }.apply()
+
+                    Log.d("ChatApp", "ログイン成功！ID: ${response.userId}")
+
+                    // ✨ 【成功時】ここで初めて手動でダイアログを閉じる！
+                    dialog.dismiss()
+
+                    // 3. 部屋の読み込みをスタート
+                    syncRooms()
+                    updateUserUI(sharedPref)
+
+                } catch (e: retrofit2.HttpException) {
+                    // 💡 【TODO回収】サーバーからエラーが返ってきた場合の処理
+                    if (e.code() == 401) {
+                        // ⭕ 401 Unauthorized（ユーザーが見つからない）のとき
+                        editText.error = "ユーザー名が見つかりません。正しい名前を入力するか、新規登録してください"
+                    } else {
+                        Toast.makeText(requireContext(), "サーバーエラー（コード: ${e.code()}）", Toast.LENGTH_SHORT).show()
                     }
-                }else{
-                    showLoginDialog(sharedPref)
+                } catch (e: Exception) {
+                    Log.e("ChatApp", "ログイン失敗", e)
+                    Toast.makeText(requireContext(), "ネットワーク接続を確認してください", Toast.LENGTH_SHORT).show()
                 }
             }
-            .setNegativeButton("新規登録はこちら") { _, _ -> showRegisterDialog(sharedPref) }
-            .show()
+        }
     }
 
     // 現在のログイン状態に合わせてUIを書き換える関数
