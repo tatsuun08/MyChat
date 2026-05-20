@@ -16,14 +16,28 @@ data class RoomRequest(
     val name: String
 )
 
+
 data class UserResponse(
     val id: Int,
     val name: String,
     @SerializedName("public_key") val publicKey : String?
 )
+
+//ユーザー登録
 data class UserRequest(
     val name: String,
-    val publicKey : String
+    @SerializedName("public_key") val publicKey : String
+)
+
+//ログイン
+data class LoginRequest(
+    val name: String,
+    @SerializedName("public_key") val publicKey : String
+    )
+data class LoginResponse(
+    val token: String,
+    @SerializedName("user_id") val userId: Int,
+    @SerializedName("user_name") val userName: String,
 )
 
 
@@ -55,9 +69,11 @@ data class MessageResponse(
 
 // 3. 通信のルールブック（インターフェース）
 interface ChatApi {
-    // ★ログイン（ユーザー登録）用のAPI
     @POST("users")
-    suspend fun loginUser(@Body request: UserRequest): UserResponse
+    suspend fun registerUser(@Body request: UserRequest): UserResponse
+
+    @POST("login")
+    suspend fun loginUser(@Body request: LoginRequest): LoginResponse
 
     @GET("room_users/list")
     suspend fun getUsersByRoom(@Query("room_id") roomId: Int): List<UserResponse>

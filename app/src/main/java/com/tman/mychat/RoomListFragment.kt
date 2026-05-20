@@ -11,6 +11,8 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
+import android.widget.Toast
+import android.widget.Toast.makeText
 import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
@@ -45,25 +47,26 @@ class RoomListFragment : Fragment(R.layout.fragment_room_list) {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-
+        //SharedPreferenceの読み込み
         val sharedPref = requireActivity().getSharedPreferences("ChatAppPrefs", Context.MODE_PRIVATE)
         //DB
         val db = AppDatabase.getDatabase(requireContext())
         val roomDao = db.roomDao()
 
-        val myUserId = sharedPref.getInt("myUserId", -1)
-
-        roomAdapter = RoomListAdapter(emptyList())
-
-        // 1. UIを更新する関数を呼ぶ
-        updateUserUI(sharedPref)
-
+        //ログイン処理 ユーザーIDが読み取れる場合はそのまま
         login(sharedPref, db)
+        //ユーザーID読み取り
+        val myUserId = sharedPref.getInt("myUserId", -1)
         Log.d("ChatApp", "【現在のID確認】 myUserId = $myUserId")
 
+        //UIを更新する関数を呼ぶ　ユーザーIDの表示
+        updateUserUI(sharedPref)
+
+        //サーバーDBとローカルDBの同期
         syncRooms()
 
         //RecyclerView と Adapter のセットアップ
+        roomAdapter = RoomListAdapter(emptyList())
         binding.roomRecyclerView.apply {
             adapter = roomAdapter
             layoutManager = LinearLayoutManager(requireContext())
@@ -73,7 +76,29 @@ class RoomListFragment : Fragment(R.layout.fragment_room_list) {
         loadRooms(roomDao)
 
         //ログアウトボタン
+        setLogoutButton(sharedPref, db)
+        //ルーム作成ボタン
+        createRoomButton(sharedPref)
+
+    }
+
+    override fun onDestroyView() {
+        super.onDestroyView()
+        _binding = null // メモリリーク防止
+    }
+
+    //ローカルデータベースからルームリストをロード，リサイクルビューの更新
+    private fun loadRooms(roomDao: RoomDao) {
+        lifecycleScope.launch {
+            val rooms = roomDao.getRooms()
+            roomAdapter.updateData(rooms)
+        }
+    }
+
+    //ログアウトボタン処理
+    private fun setLogoutButton(sharedPref: SharedPreferences, db: AppDatabase){
         binding.logoutButton.setOnClickListener {
+            val roomDao = db.roomDao()
             lifecycleScope.launch {
                 withContext(Dispatchers.IO) {
                     db.clearAllTables() // これだけで rooms も messages も全て空になります
@@ -95,7 +120,10 @@ class RoomListFragment : Fragment(R.layout.fragment_room_list) {
                 loadRooms(roomDao)
             }
         }
+    }
 
+    //ルーム作成ボタン
+    private fun createRoomButton(sharedPref: SharedPreferences){
         //ルーム作成ボタン
         binding.createRoom.setOnClickListener {
             val editText = EditText(requireContext())
@@ -113,20 +141,6 @@ class RoomListFragment : Fragment(R.layout.fragment_room_list) {
                 }
                 .setNegativeButton("キャンセル", null) // 何もせずに閉じる
                 .show()
-
-        }
-    }
-
-    override fun onDestroyView() {
-        super.onDestroyView()
-        _binding = null // メモリリーク防止
-    }
-
-    //ローカルデータベースからルームリストをロード，リサイクルビューの更新
-    private fun loadRooms(roomDao: RoomDao) {
-        lifecycleScope.launch {
-            val rooms = roomDao.getRooms()
-            roomAdapter.updateData(rooms)
         }
     }
 
@@ -201,43 +215,132 @@ class RoomListFragment : Fragment(R.layout.fragment_room_list) {
         }
     }
 
-    // ログイン用のダイアログを表示する関数
+    // 新規登録ダイアログ
+    private fun showRegisterDialog(sharedPref: SharedPreferences) {
+        val editText = EditText(requireContext())
+        editText.hint = "新しいユーザー名を入力"
+
+        val dialog = AlertDialog.Builder(requireContext())
+            .setTitle("新規アカウント作成")
+            .setView(editText)
+            .setCancelable(false)
+            // 💡 1. 決定ボタンの処理を一旦「null」にして、自動で閉じないようにする！
+            .setPositiveButton("登録", null)
+            .setNegativeButton("ログインはこちら") { _, _ -> showLoginDialog(sharedPref) }
+            .create() // show() ではなく、まずは create() でインスタンス化
+
+        // 💡 2. まずダイアログを画面に表示する
+        dialog.show()
+
+        // 💡 3. 表示された後に、登録ボタンのクリックイベントを手動で上書きする！
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val userName = editText.text.toString().trim()
+
+            if (userName.isEmpty()) {
+                editText.error = "名前を入力してください"
+                return@setOnClickListener
+            }
+
+            lifecycleScope.launch {
+                try {
+                    // 鍵の生成と取得
+                    CryptoManager.generateRSAKeyPairIfNeeded()
+                    val myPublicKey = CryptoManager.getMyPublicKeyString() ?: ""
+
+                    // サーバーへ新規登録リクエスト送信
+                    RetrofitClient.api.registerUser(UserRequest(name = userName, publicKey = myPublicKey))
+
+                    // ✨ 【成功時】ここで初めて手動でダイアログを閉じる！
+                    dialog.dismiss()
+                    makeText(requireContext(), "登録が完了しました！", android.widget.Toast.LENGTH_SHORT).show()
+
+                    // そのままログインダイアログへ誘導
+                    showLoginDialog(sharedPref)
+
+                } catch (e: retrofit2.HttpException) {
+                    //  サーバーからエラーが返ってきた場合
+                    if (e.code() == 409) {
+                        // 409 Conflict（名前の重複）
+                        editText.error = "この名前はすでに使われています。別の名前を入力してください"
+
+                        makeText(requireContext(), "別の名前で登録し直してください", android.widget.Toast.LENGTH_LONG).show()
+                    } else {
+                        // その他のサーバーエラー
+                        makeText(requireContext(), "エラーが発生しました（コード: ${e.code()}）", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                } catch (e: Exception) {
+                    // ネットワークが繋がっていないなどの通信エラー
+                    Log.e("ChatApp", "通信失敗", e)
+                    makeText(requireContext(), "ネットワーク接続を確認してください", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
     private fun showLoginDialog(sharedPref: SharedPreferences) {
         val editText = EditText(requireContext())
         editText.hint = "あなたの名前を入力してください"
 
-        AlertDialog.Builder(requireContext())
-            .setTitle("ユーザー登録")
+        val dialog = AlertDialog.Builder(requireContext())
+            .setTitle("ログイン")
             .setView(editText)
-            .setCancelable(false) // 戻るボタンで閉じられないようにする
-            .setPositiveButton("決定") { _, _ ->
-                val userName = editText.text.toString()
-                if (userName.isNotEmpty()) {
-                    lifecycleScope.launch {
-                        try {
-                            //ログイン時にパブリックキーをデータベースに保存
-                            val myPublicKey = CryptoManager.getMyPublicKeyString() ?: ""
-                            // 1. Goサーバーに名前を送信！
-                            val response = RetrofitClient.api.loginUser(UserRequest(name = userName, publicKey = myPublicKey))
+            .setCancelable(false)
+            // 💡 1. 自動で閉じないように、一旦リスナーは null にしておく
+            .setPositiveButton("決定", null)
+            .setNegativeButton("新規登録はこちら") { _, _ -> showRegisterDialog(sharedPref) }
+            .create()
 
-                            // 2. サーバーから返ってきた自分のIDを SharedPreferences に永久保存！
-                            sharedPref.edit().putInt("myUserId", response.id).apply()
-                            sharedPref.edit().putString("myUserName", response.name).apply()
+        // 💡 2. ダイアログを表示
+        dialog.show()
 
-                            Log.d("ChatApp", "ログイン成功！ID: ${response.id}")
+        // 💡 3. 表示された後に、決定ボタンのクリックイベントを手動で上書き！
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val userName = editText.text.toString().trim()
 
-                            // 3. ログインできたので、部屋の読み込みをスタート
-                            syncRooms()
-                            val db = AppDatabase.getDatabase(requireContext())
-                            updateUserUI(sharedPref)
+            // 空文字チェック
+            if (userName.isEmpty()) {
+                editText.error = "名前を入力してください" // 💡 再帰呼び出しせず、その場で警告
+                return@setOnClickListener
+            }
 
-                        } catch (e: Exception) {
-                            Log.e("ChatApp", "ログイン失敗", e)
-                        }
+            lifecycleScope.launch {
+                try {
+                    val myPublicKey = CryptoManager.getMyPublicKeyString() ?: ""
+
+                    // 1. Goサーバーに名前と公開鍵を送信！
+                    // 💡 【修正】publicKey = myPublicKey と明記
+                    val response = RetrofitClient.api.loginUser(LoginRequest(name = userName, publicKey = myPublicKey))
+
+                    // 2. サーバーから返ってきた情報を保存！
+                    sharedPref.edit().apply {
+                        putInt("myUserId", response.userId)
+                        putString("myUserName", response.userName)
+                        putString("jwt_token", response.token)
+                    }.apply()
+
+                    Log.d("ChatApp", "ログイン成功！ID: ${response.userId}")
+
+                    // ✨ 【成功時】ここで初めて手動でダイアログを閉じる！
+                    dialog.dismiss()
+
+                    // 3. 部屋の読み込みをスタート
+                    syncRooms()
+                    updateUserUI(sharedPref)
+
+                } catch (e: retrofit2.HttpException) {
+                    // 💡 【TODO回収】サーバーからエラーが返ってきた場合の処理
+                    if (e.code() == 401) {
+                        // ⭕ 401 Unauthorized（ユーザーが見つからない）のとき
+                        editText.error = "ユーザー名が見つかりません。正しい名前を入力するか、新規登録してください"
+                    } else {
+                        Toast.makeText(requireContext(), "サーバーエラー（コード: ${e.code()}）", Toast.LENGTH_SHORT).show()
                     }
+                } catch (e: Exception) {
+                    Log.e("ChatApp", "ログイン失敗", e)
+                    Toast.makeText(requireContext(), "ネットワーク接続を確認してください", Toast.LENGTH_SHORT).show()
                 }
             }
-            .show()
+        }
     }
 
     // 現在のログイン状態に合わせてUIを書き換える関数
