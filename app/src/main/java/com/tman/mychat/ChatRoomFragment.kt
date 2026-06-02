@@ -111,112 +111,68 @@ class ChatRoomFragment : Fragment(R.layout.fragment_chat_room) {
         }
         //送信ボダンを押されたときの処理
         sendButton.setOnClickListener {
-            val text = messageInput.text.toString()
+            val text = messageInput.text.toString().trim()
             if (text.isNotEmpty()) {
-                // リストにデータを追加
-                messageList.add(Message(text, true, null))
-                // Adapterに「データが増えたよ」と通知（これで画面が更新される）
-                chatAdapter.notifyItemInserted(messageList.size - 1)
-                // 入力欄を空にする
+                sendMessage(text, true)
                 messageInput.text.clear()
 
-                // 2. 返信ロジック
                 val replyText = when {
                     text.startsWith("/help") -> "/help コマンド詳細\n /hello こんにちは\n /echo 文字列"
                     text.startsWith("/hello") -> "こんにちは"
                     text.startsWith("/echo") -> "[$text]っていった？"
                     else -> null
                 }
+                if (replyText != null) sendMessage(replyText, false)
 
-                if (replyText != null) {
-                    sendMessage(replyText, false)
-                }
-                // コルーチン内でデータの保存・取得
-                val currentRoomId = args.roomId
-
-                // 💡 2. サーバーやDBに保存するために、ここで暗号化する！！
-
-                // Roomから所属しているユーザーの公開鍵を取得
-                val userList = mutableListOf<UserEntity>()
                 lifecycleScope.launch {
-                    // ユーザーの最新情報を取得
+                    // ユーザー一覧を最新に同期
                     syncUserByRoom(db, currentRoomId)
-                    userDao.getUsersByRoom(currentRoomId).forEach { user ->
-                        userList.add(user)
-                    }
-                }
-
-                Log.d("ChatApp", "userList: $userList")
-
-                //room_userの同期
-                //部屋にいるユーザーに各公開鍵で暗号化されたAES鍵と暗号文を送る
-                lifecycleScope.launch {
-                    syncUserByRoom(db, currentRoomId)
-
-                    // 同期が終わった後にDBから取得する
                     val roomUsers = db.userDao().getUsersByRoom(currentRoomId)
-                    Log.d("ChatApp", "取得できたルームユーザー数: ${roomUsers.size}")
 
                     try {
-                        // 1. AESで本文を暗号化
+                        // 1. 本文を暗号化
                         val aesKey = CryptoManager.generateAESKey()
                         val encryptedText = AesCrypto.encrypt(text, aesKey)
 
-                        // 2. 部屋のユーザー全員分、AES鍵をRSAで暗号化してリストを作る
-                        val roomUsers = db.userDao().getUsersByRoom(currentRoomId)
+                        // 2. 部屋の全員（自分含む）の公開鍵でAES鍵を個別にRSA暗号化
                         val keyList = mutableListOf<KeyInfo>()
 
-                        // 自分自身の鍵は、ローカルDBを見ずに「金庫から直接」取り出して必ず追加する！
-                        val myPublicKey = CryptoManager.getMyPublicKeyString()
-                        if (myPublicKey != null) {
+                        // 自分の鍵を最優先で追加
+                        CryptoManager.getMyPublicKeyString(requireContext())?.let { myPublicKey ->
                             val myEncryptedKey = CryptoManager.encryptAESKeyWithRSA(aesKey, myPublicKey)
                             keyList.add(KeyInfo(userId = myUserId, key = myEncryptedKey))
                         }
 
-                        Log.d("ChatApp", "roomUsers: $roomUsers")
-
+                        // 相手たちの鍵を追加
                         roomUsers.forEach { user ->
                             if (user.userId != myUserId && user.publicKey.isNotEmpty()) {
-                                // 相手の公開鍵でAES鍵をロック
                                 val rsaEncryptedKey = CryptoManager.encryptAESKeyWithRSA(aesKey, user.publicKey)
-                                Log.d("ChatAPP", "RSA暗号化された鍵: $rsaEncryptedKey\n AES鍵: ${user.userId}")
-                                // リストに追加
                                 keyList.add(KeyInfo(userId = user.userId, key = rsaEncryptedKey))
                             }
                         }
 
-                        // 3. 全体をひとまとめにする
-                        val payload = MessagePayload(
-                            encryptedText = encryptedText,
-                            encryptedKeys = keyList
-                        )
-
-                        // 4. GsonでJSON文字列に変換
+                        // 3. 構造体にまとめて一発でGSON文字列化！
+                        val payload = MessagePayload(encryptedText = encryptedText, encryptedKeys = keyList)
                         val jsonString = Gson().toJson(payload)
 
-                        // データの保存 (Upsert)
+                        // ローカルDBへの保存
                         val newMessages = mutableListOf(
-                            MessageEntity(text = text, senderId = myUserId, isMe = true, roomId = currentRoomId, messageId = 0),
+                            MessageEntity(text = text, senderId = myUserId, isMe = true, roomId = currentRoomId, messageId = 0)
                         )
-                        if (replyText != null){
+                        if (replyText != null) {
                             newMessages.add(MessageEntity(text = replyText, senderId = 0, isMe = false, roomId = currentRoomId, messageId = 0))
                         }
                         messageDao.upsertMessage(newMessages)
 
-                        // 5. サーバーへ送信 jsonで鍵と内容をまとめて送信
+                        // 4. サーバーへ送信
                         RetrofitClient.api.createMessage(
                             MessageRequest(id = 0, text = jsonString, senderID = myUserId, roomID = currentRoomId)
                         )
 
                     } catch (e: Exception) {
-                        Log.e("Crypto", "JSON作成・送信エラー", e)
+                        Log.e("Crypto", "メッセージ送信エラー", e)
                     }
-
                 }
-                //【TODO】UserEntityが公開鍵を持っていないので，データベース更新
-                val publicKeyString = userList.firstOrNull()?.publicKey ?: ""
-
-                recyclerView.scrollToPosition(messageList.size - 1)
             }
         }
         //ルームリストボタンを押されたときの処理 ルーム選択に戻る
@@ -228,78 +184,56 @@ class ChatRoomFragment : Fragment(R.layout.fragment_chat_room) {
         //同期 roomIDのメッセージを取得　【TODO】同期処理と画面更新を分ける
         lifecycleScope.launch {
             try {
-                // 1. サーバーから最新のメッセージ一覧を取得して変数に入れる
+                // 1. サーバーから最新メッセージを取得
                 val remoteMessages = RetrofitClient.api.getMessages(currentRoomId)
 
-                // 2. サーバーのデータをローカルDB用(MessageEntity)に変換する
+                // 2. サーバーのデータをGSONを用いてスマートに復号・変換（JSONObjectを全廃！）
                 val messageEntities = remoteMessages.map { response ->
-                    // 💡 あらかじめ平文を入れる変数を用意
                     var decryptedText = ""
 
                     try {
-                        // 文字列をJSONオブジェクト（Mapのようなもの）に変換
-                        val jsonObject = org.json.JSONObject(response.text)
+                        // 💡 GSONで一発で構造体にデコード
+                        val payload = Gson().fromJson(response.text, MessagePayload::class.java)
 
-                        // "encrypted_text" の値を取り出す
-                        val encryptedContent = jsonObject.getString("encrypted_text")
-                        // "encrypted_keys" の配列（リスト）を取り出す
-                        val keysArray = jsonObject.getJSONArray("encrypted_keys")
+                        // 自分のID宛ての鍵を検索
+                        val myKeyInfo = payload.encryptedKeys.find { it.userId == myUserId }
 
-                        // 自分のユーザーIDと一致する鍵を探す
-                        var myEncryptedAesKey: String? = null
-                        for (i in 0 until keysArray.length()) {
-                            val keyInfo = keysArray.getJSONObject(i)
-                            if (keyInfo.getInt("user_id") == myUserId) {
-                                myEncryptedAesKey = keyInfo.getString("key")
-                                break // 見つかったらループ終了
-                            }
-                        }
-                        // 自分の鍵が見つかったら復号化を実行！
-                        if (myEncryptedAesKey != null) {
-                            val decryptedKey = CryptoManager.decryptAESKeyWithRSA(myEncryptedAesKey)
-
-                            // AESで復号化
+                        if (myKeyInfo != null) {
+                            // RSAで共通鍵を解凍し、その共通鍵で本文を解凍
+                            val decryptedKey = CryptoManager.decryptAESKeyWithRSA(requireContext(),myKeyInfo.key)
                             if (decryptedKey != null) {
-                                decryptedText = CryptoManager.decrypt(encryptedContent, decryptedKey)
+                                decryptedText = CryptoManager.decrypt(payload.encryptedText, decryptedKey)
                             } else {
-                                Log.e("ChatApp", "鍵が合わないため復号できませんでした")
+                                decryptedText = "[鍵の復号に失敗しました]"
                             }
-
                         } else {
-                            decryptedText = "[このメッセージはあなたには暗号化されていません]"
+                            decryptedText = "[このメッセージはあなた宛てに暗号化されていません]"
                         }
-
                     } catch (e: Exception) {
-                        Log.d("ChatApp","Catch に入りました")
-                        // 💡 ここを修正！何のエラーが起きたのかをログと画面に出す
-                        Log.e("ChatApp", "復号処理の致命的エラー", e)
-                        // 💡 どこでエラーが起きたか、スタックトレースの最初の行を画面に出す
-                        val errorLocation = e.stackTrace.firstOrNull()?.methodName ?: "不明"
-                        decryptedText = "エラー: ${e.javaClass.simpleName} (場所: $errorLocation)"
+                        // JSONの形になっていない古いテストデータや、BOTの返答（/helloなど）はそのまま平文として扱う
+                        decryptedText = response.text
                     }
 
-                    // 💡 最終的にDBに保存する Entity を作る
                     MessageEntity(
                         messageId = response.id,
                         roomId = currentRoomId,
                         senderId = response.senderID,
-                        text = decryptedText, // ✨ ここにはすでに「復号済みの読める文字」が入る！
+                        text = decryptedText,
                         isMe = (response.senderID == myUserId)
                     )
                 }
-                // 3. ローカルデータベースにまとめて保存・上書き(Upsert)
+
+                // 3. ローカルデータベースに保存して画面更新
                 messageDao.upsertMessage(messageEntities)
 
-            } catch(e: Exception) {
-                Log.e("ChatApp", "通信エラー: ${e.message}")
+            } catch (e: Exception) {
+                Log.e("ChatApp", "通信またはメッセージ処理エラー: ${e.message}")
             }
 
-
+            // 画面の更新処理（現状のまま）
             val allMessages = messageDao.getMessagesByRoom(currentRoomId)
-
             messageList.clear()
             allMessages.forEach { message ->
-
                 messageList.add(Message(message.text, message.isMe, null))
             }
             chatAdapter.notifyDataSetChanged()
@@ -401,10 +335,10 @@ class ChatRoomFragment : Fragment(R.layout.fragment_chat_room) {
                 }
 
                 // 1. 鍵がなければ作成
-                CryptoManager.generateRSAKeyPairIfNeeded()
+                CryptoManager.generateRSAKeyPairIfNeeded(requireContext())
 
                 // 2. 💡 CryptoManagerの関数を使って「正しいBase64文字列」として取り出す！
-                val myPublicKey = CryptoManager.getMyPublicKeyString()
+                val myPublicKey = CryptoManager.getMyPublicKeyString(requireContext())
                 if (myPublicKey == null) {
                     Log.e("ChatApp", "公開鍵の取得に失敗しました")
                     return@launch

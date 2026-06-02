@@ -26,18 +26,22 @@ data class UserResponse(
 //ユーザー登録
 data class UserRequest(
     val name: String,
-    @SerializedName("public_key") val publicKey : String
+    val password: String,
+    @SerializedName("public_key") val publicKey : String,
+    @SerializedName("key_backup") val keyBackup: String
 )
 
 //ログイン
 data class LoginRequest(
     val name: String,
+    val password : String,
     @SerializedName("public_key") val publicKey : String
     )
 data class LoginResponse(
     val token: String,
     @SerializedName("user_id") val userId: Int,
     @SerializedName("user_name") val userName: String,
+    @SerializedName("key_backup") val keyBackup: String
 )
 
 
