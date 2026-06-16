@@ -13,6 +13,27 @@
 3. **Coroutinesを用いた非同期処理によるUIの最適化**
    ネットワーク通信やデータベースの読み書きなど重い処理を非同期で行い、画面のフリーズを防ぎスムーズな操作性を実現しています。
 
+### E2EE実装の詳細
+sequenceDiagram
+    autonumber
+    actor User as ユーザー
+    participant App as Androidアプリ
+    participant Store as Android_KeyStore
+    participant API as Goサーバー(API)
+    participant DB as データベース
+    
+    User->>App: ユーザー名・パスワード入力
+    App->>App: メモリ上でRSA-2048鍵ペアを生成
+    App->>App: パスワードからAES鍵を誘導 (PBKDF2)
+    App->>App: RSA秘密鍵をAES鍵で暗号化 (AES-GCM)
+    App->>Store: 端末ローカル専用AES鍵を生成/取得
+    App->>Store: 生のRSA秘密鍵をローカルAES鍵で暗号化してSharedPrefに保存
+    App->>API: 新規登録リクエスト (名前, RSA公開鍵, 暗号化されたRSA秘密鍵)
+    API->>API: ランダムソルト生成 & パスワードのハッシュ化 (Argon2id)
+    API->>DB: ユーザー情報・暗号化鍵・ソルトを保存
+    API-->>App: 201 Created (登録成功)
+   
+
 ### 画面プレビュー
 <img src="./img/login.png" width="30%"> <img src="./img/create_room.png" width="30%"> <img src="./img/room_list.png" width="30%">
 <img src="./img/send_message.png" width="30%">  <img src="./img/invite_user.png" width="30%"> <img src="./img/load_other_user_message.png" width="30%">
@@ -34,7 +55,6 @@
 * PostgreSQL (サーバー側データ永続化)
 
 ## 今後の展望 (ToDo)
-* Android Keystoreを活用した、端末ごとのRSA鍵ペア生成と鍵共有ロジックへのアップグレード
+* WebsocketによるリアルタイムUI更新
 * オフライン時の送信エラーハンドリングとリトライ機能の実装
-* パスワード認証およびJWTを用いたセキュアなログインの実装
 * ルームおよびメッセージの削除機能（論理削除/物理削除の検討）
