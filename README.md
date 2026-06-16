@@ -14,6 +14,7 @@
    ネットワーク通信やデータベースの読み書きなど重い処理を非同期で行い、画面のフリーズを防ぎスムーズな操作性を実現しています。
 
 ### E2EE実装の詳細
+```mermaid
 sequenceDiagram
     autonumber
     actor User as ユーザー
@@ -32,7 +33,7 @@ sequenceDiagram
     API->>API: ランダムソルト生成 & パスワードのハッシュ化 (Argon2id)
     API->>DB: ユーザー情報・暗号化鍵・ソルトを保存
     API-->>App: 201 Created (登録成功)
-   
+```
 
 ### 画面プレビュー
 <img src="./img/login.png" width="30%"> <img src="./img/create_room.png" width="30%"> <img src="./img/room_list.png" width="30%">
